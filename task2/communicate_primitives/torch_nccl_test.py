@@ -176,6 +176,9 @@ def main():
     # 6. 测试broadcast通信原语
     print_rank0("Testing dist.broadcast ...")
     test_broadcast()
+    # 7. 测试reduce通信原语
+    print_rank0("Testing dist.reduce ...")
+    test_reduce()
 
 
     
