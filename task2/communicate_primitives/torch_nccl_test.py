@@ -114,6 +114,16 @@ def test_broadcast():
     logging.info(f"rank: {rank}, after broadcast tensor: {tensor}")
     dist.barrier()
 
+# 测试dist.reduce
+"""
+测试结果：
+03:29:36 - [INFO] - Line:(123) - rank: 1, before reduce tensor: tensor([2., 2.], device='cuda:1')
+03:29:36 - [INFO] - Line:(123) - rank: 0, before reduce tensor: tensor([1., 1.], device='cuda:0')
+03:29:36 - [INFO] - Line:(129) - rank: 0, after reduce tensor: tensor([3., 3.], device='cuda:0')
+03:29:36 - [INFO] - Line:(129) - rank: 1, after reduce tensor: tensor([2., 2.], device='cuda:1')
+
+所有Rank中的tensor执行了SUM操作，将结果放在Rank 0中
+"""
 def test_reduce():
     dist.barrier()
     rank = dist.get_rank()
@@ -129,7 +139,20 @@ def test_reduce():
     logging.info(f"rank: {rank}, after reduce tensor: {tensor}")
     dist.barrier()
 
-
+def test_all_reduce():
+    dist.barrier()
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    # 创建用于all_reduce的tensor
+    tensor = torch.ones(world_size) * (rank + 1)
+    logging.info(f"rank: {rank}, before all_reduce tensor: {tensor}")
+    # 执行all_reduce操作
+    dist.barrier()
+    # 对tensor进行all_reduce操作
+    dist.all_reduce(tensor, op=ReduceOp.SUM)
+    dist.barrier()
+    logging.info(f"rank: {rank}, after all_reduce tensor: {tensor}")
+    dist.barrier()
 
 
 
@@ -179,6 +202,9 @@ def main():
     # 7. 测试reduce通信原语
     print_rank0("Testing dist.reduce ...")
     test_reduce()
+    # 8. 测试all_reduce通信原语
+    print_rank0("Testing dist.all_reduce ...")
+    test_all_reduce()
 
 
     
