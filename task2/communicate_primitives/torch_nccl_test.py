@@ -150,6 +150,9 @@ def main():
     # 5. 测试gather通信原语
     print_rank0("Testing dist.gather ...")
     test_gather()
+    # 6. 测试broadcast通信原语
+    print_rank0("Testing dist.broadcast ...")
+    test_broadcast()
 
 
     
