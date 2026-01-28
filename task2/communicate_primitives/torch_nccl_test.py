@@ -139,6 +139,14 @@ def test_reduce():
     logging.info(f"rank: {rank}, after reduce tensor: {tensor}")
     dist.barrier()
 
+# 测试dist.all_reduce
+"""
+测试结果：
+03:51:14 - [INFO] - Line:(148) - rank: 1, before all_reduce tensor: tensor([2., 2.], device='cuda:1')
+03:51:14 - [INFO] - Line:(148) - rank: 0, before all_reduce tensor: tensor([1., 1.], device='cuda:0')
+03:51:14 - [INFO] - Line:(154) - rank: 1, after all_reduce tensor: tensor([3., 3.], device='cuda:1')
+03:51:14 - [INFO] - Line:(154) - rank: 0, after all_reduce tensor: tensor([3., 3.], device='cuda:0')
+"""
 def test_all_reduce():
     dist.barrier()
     rank = dist.get_rank()
@@ -152,6 +160,21 @@ def test_all_reduce():
     dist.all_reduce(tensor, op=ReduceOp.SUM)
     dist.barrier()
     logging.info(f"rank: {rank}, after all_reduce tensor: {tensor}")
+    dist.barrier()
+
+def test_all_gather():
+    dist.barrier()
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    # 创建用于all_gather的tensor
+    send_tensor = torch.arange(world_size, dtype=torch.float32) + world_size * rank
+    # 创建接受用的 tensorlist
+    recv_list = [torch.zeros(world_size, dtype=torch.float32) for _ in range(world_size)]
+    # 执行all_gather操作
+    dist.all_gather(send_tensor, recv_list)
+    dist.barrier()
+    logging.info(f"rank: {rank}, send_tensor: {send_tensor}")
+    logging.info(f"rank: {rank}, recv_list: {recv_list}")
     dist.barrier()
 
 
@@ -205,6 +228,9 @@ def main():
     # 8. 测试all_reduce通信原语
     print_rank0("Testing dist.all_reduce ...")
     test_all_reduce()
+    # 9. 测试all_gather通信原语
+    print_rank0("Testing dist.all_gather ...")
+    test_all_gather()
 
 
     
