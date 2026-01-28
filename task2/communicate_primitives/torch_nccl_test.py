@@ -117,6 +117,9 @@ def main():
     # 4. 测试scatter通信原语
     print_rank0("Testing dist.scatter ...")
     test_scatter()
+    # 5. 测试gather通信原语
+    print_rank0("Testing dist.gather ...")
+    test_gather()
 
 
     
