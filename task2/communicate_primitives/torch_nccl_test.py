@@ -42,7 +42,7 @@ def test_scatter():
     # 只有进程0创建输入tensor
     if rank == 0:
         # 先创建一个world_size*world_size的一维张量，然后再reshape成world_size行world_size列的二位张量
-        input_tensor = torch.arange(world_size * world_size, dtype=torch.float32).reshape(world_size, world_size)
+        input_tensor = torch.random(world_size * world_size, dtype=torch.float32).reshape(world_size, world_size)
         # 打印输入tensor
         print_rank0(f"Scatter input tensor:\n{input_tensor}")
         # 注意，scatter要求的输入是一个List[Tensor]，而不是一个Tensor
@@ -56,14 +56,20 @@ def test_scatter():
     dist.scatter(output_tensor, scatter_list, src=0)
     dist.barrier()
     logging.info(f"Rank:{rank} Scatter output tensor:\n{output_tensor}")
+    dist.barrier()
 
+# 测试dist.gather
+"""
+测试结果：
+
+"""
 def test_gather():
     dist.barrier()
     rank = dist.get_rank()
     world_size = dist.get_world_size()
     # 创建发送tensor
     # 发送tensor为world_size大小的一维张量
-    send_tensor = torch.arange(world_size, dtype=torch.float32)
+    send_tensor = torch.random(world_size, dtype=torch.float32)
     # 创建接收tensor
     if rank == 0:
         # 等价于创建一个空的list，然后循环world_size次，每次创建一个张量并且将其append到list中
@@ -75,6 +81,7 @@ def test_gather():
     dist.barrier()
     logging.info(f"rank: {rank}, send_tensor: {send_tensor}")
     print_rank0(f"Gather recv_tensor: {recv_tensor}")
+    dist.barrier()
 
 
 
