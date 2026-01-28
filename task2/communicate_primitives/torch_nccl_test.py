@@ -87,6 +87,14 @@ def test_gather():
     print_rank0(f"Gather recv_list: {recv_list}")
     dist.barrier()
 
+# 测试dist.broadcast
+"""
+测试结果：
+03:18:18 - [INFO] - Line:(101) - rank: 1, beford broadcast tensor: tensor([0., 0.], device='cuda:1')
+03:18:18 - [INFO] - Line:(101) - rank: 0, beford broadcast tensor: tensor([0., 1.], device='cuda:0')
+03:18:18 - [INFO] - Line:(106) - rank: 1, after broadcast tensor: tensor([0., 1.], device='cuda:1')
+03:18:18 - [INFO] - Line:(106) - rank: 0, after broadcast tensor: tensor([0., 1.], device='cuda:0')
+"""
 def test_broadcast():
     dist.barrier()
     rank = dist.get_rank()
@@ -104,6 +112,21 @@ def test_broadcast():
     dist.broadcast(tensor, src=0)
     dist.barrier()
     logging.info(f"rank: {rank}, after broadcast tensor: {tensor}")
+    dist.barrier()
+
+def test_reduce():
+    dist.barrier()
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    # 创建用于reduce的tensor
+    tensor = torch.ones(world_size) * (rank + 1)
+    logging.info(f"rank: {rank}, before reduce tensor: {tensor}")
+    # 执行reduce操作
+    dist.barrier()
+    # 对tensor进行reduce操作，结果放在rank 0上
+    dist.reduce(tensor, dst=0, op=ReduceOp.SUM)
+    dist.barrier()
+    logging.info(f"rank: {rank}, after reduce tensor: {tensor}")
     dist.barrier()
 
 
