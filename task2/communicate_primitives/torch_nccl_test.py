@@ -171,7 +171,8 @@ def test_all_gather():
     # 创建接受用的 tensorlist
     recv_list = [torch.zeros(world_size, dtype=torch.float32) for _ in range(world_size)]
     # 执行all_gather操作
-    dist.all_gather(send_tensor, recv_list)
+    # 注意参数顺序
+    dist.all_gather(recv_list, send_tensor)
     dist.barrier()
     logging.info(f"rank: {rank}, send_tensor: {send_tensor}")
     logging.info(f"rank: {rank}, recv_list: {recv_list}")
