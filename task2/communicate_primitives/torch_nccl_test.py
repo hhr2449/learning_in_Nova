@@ -61,7 +61,11 @@ def test_scatter():
 # 测试dist.gather
 """
 测试结果：
+rank: 0, send_tensor: tensor([0., 1.], device='cuda:0')
+rank: 1, send_tensor: tensor([2., 3.], device='cuda:1')
+Gather recv_list: [tensor([0., 1.], device='cuda:0'), tensor([2., 3.], device='cuda:0')]
 
+注意recv_list中的tensor都是在rank0的设备上，说明两个tensor组装成了一个list后，list被放在了rank0的设备上
 """
 def test_gather():
     dist.barrier()
@@ -73,14 +77,33 @@ def test_gather():
     # 创建接收tensor
     if rank == 0:
         # 等价于创建一个空的list，然后循环world_size次，每次创建一个张量并且将其append到list中
-        recv_tensor = [torch.zeros(world_size, dtype=torch.float32) for _ in range(world_size)]
+        recv_list = [torch.zeros(world_size, dtype=torch.float32) for _ in range(world_size)]
     else:
-        recv_tensor = None
+        recv_list = None
     # 执行收集
-    dist.gather(send_tensor, recv_tensor, dst=0)
+    dist.gather(send_tensor, recv_list, dst=0)
     dist.barrier()
     logging.info(f"rank: {rank}, send_tensor: {send_tensor}")
-    print_rank0(f"Gather recv_tensor: {recv_tensor}")
+    print_rank0(f"Gather recv_list: {recv_list}")
+    dist.barrier()
+
+def test_broadcast():
+    dist.barrier()
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    # 创建广播tensor
+    #注意保证不同Rank上的tensor形状和类型一致
+    if rank == 0:
+        tensor = torch.arange(world_size, dtype=torch.float32)
+    else:
+        tensor = torch.zeros(world_size, dtype=torch.float32)
+
+    logging.info(f"rank: {rank}, beford broadcast tensor: {tensor}")
+    # 执行广播
+    # 将rank 0的tensor广播到所有进程
+    dist.broadcast(tensor, src=0)
+    dist.barrier()
+    logging.info(f"rank: {rank}, after broadcast tensor: {tensor}")
     dist.barrier()
 
 
