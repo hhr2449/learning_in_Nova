@@ -20,6 +20,16 @@ def print_rank0(msg, *args, **kwargs):
         logging.info(msg, *args, **kwargs)
 
 # 测试dist.scatter
+"""
+测试结果：
+Scatter input tensor:
+tensor([[0., 1.],
+        [2., 3.]], device='cuda:0')
+Rank:0 Scatter output tensor:
+tensor([0., 1.], device='cuda:0')
+Rank:1 Scatter output tensor:
+tensor([2., 3.], device='cuda:1')
+"""
 def test_scatter():
     # 进程同步
     dist.barrier()
@@ -44,7 +54,30 @@ def test_scatter():
     # 执行分发
     # 根节点为0,将input_tensor按行分发到各个进程的output_tensor中
     dist.scatter(output_tensor, scatter_list, src=0)
+    dist.barrier()
     logging.info(f"Rank:{rank} Scatter output tensor:\n{output_tensor}")
+
+def test_gather():
+    dist.barrier()
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    # 创建发送tensor
+    # 发送tensor为world_size大小的一维张量
+    send_tensor = torch.arange(world_size, dtype=torch.float32)
+    # 创建接收tensor
+    if rank == 0:
+        # 等价于创建一个空的list，然后循环world_size次，每次创建一个张量并且将其append到list中
+        recv_tensor = [torch.zeros(world_size, dtype=torch.float32) for _ in range(world_size)]
+    else:
+        recv_tensor = None
+    # 执行收集
+    dist.gather(send_tensor, recv_tensor, dst=0)
+    dist.barrier()
+    logging.info(f"rank: {rank}, send_tensor: {send_tensor}")
+    print_rank0(f"Gather recv_tensor: {recv_tensor}")
+
+
+
 
 
 
