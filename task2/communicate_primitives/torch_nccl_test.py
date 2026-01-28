@@ -35,11 +35,16 @@ def test_scatter():
         input_tensor = torch.arange(world_size * world_size, dtype=torch.float32).reshape(world_size, world_size)
         # 打印输入tensor
         print_rank0(f"Scatter input tensor:\n{input_tensor}")
+        # 注意，scatter要求的输入是一个List[Tensor]，而不是一个Tensor
+        scatter_list = list(input_tensor)
+    else:
+        # 注意，其余进程也要创建scatter_list变量，但可以赋值为None
+        scatter_list = None
     
     # 执行分发
     # 根节点为0,将input_tensor按行分发到各个进程的output_tensor中
-    dist.scatter(output_tensor, input_tensor, src=0)
-    print_rank0(f"Scatter output tensor:\n{output_tensor}")
+    dist.scatter(output_tensor, scatter_list, src=0)
+    logging.info(f"Rank:{rank} Scatter output tensor:\n{output_tensor}")
 
 
 
