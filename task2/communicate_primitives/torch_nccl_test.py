@@ -64,7 +64,7 @@ def main():
     # torch.cuda.set_default_device("cuda")设置默认设备为GPU
     # torch.cuda.set_default_device("cuda:<local_rank>")设置默认设备为指定编号的GPU
     # torch.cuda.set_default_device("cpu")设置默认设备为CPU
-    torch.cuda.set_default_device(f"cuda:{local_rank}")
+    torch.set_default_device(f"cuda:{local_rank}")
 
     """
     torch.tensor()等创建的tensor默认是创建到CPU上
