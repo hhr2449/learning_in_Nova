@@ -1,4 +1,4 @@
-## 第一章
+## 第一章：简介
 
 * GPU:图形处理器，有更多的计算核心，适合于数据计算
 
@@ -117,7 +117,331 @@ CUDA提供了以下内置变量，均为`dim3`类型，有`.x,.y,.z`三个分量
 
 #### 线程定位
 
+思路：
+
+![554636c6c2961694f02207965e3e642e](https://raw.githubusercontent.com/hhr2449/pictureBed/main/img/554636c6c2961694f02207965e3e642e.jpg)
+
 ##### 一维
 
+`int blockId = blockIdx.x;`
+
 `int tid = blockIdx.x * blockDim.x + threadIdx`
+
+##### 二维
+
+```cpp
+// 1. 计算当前 Block 在 Grid 中的一维绝对序号
+int blockId = blockIdx.x + blockIdx.y * gridDim.x;
+
+// 2. 计算当前 Thread 的全局唯一 ID
+// 公式：前面所有 Block 的 Thread 总数 + 自身在当前 Block 内的二维展平偏移
+int threadId = blockId * (blockDim.x * blockDim.y) 
+             + threadIdx.y * blockDim.x 
+             + threadIdx.x;
+```
+
+##### 三维
+
+```cpp
+// 1. 计算当前 Block 在 Grid 中的一维绝对序号
+int blockId = blockIdx.x 
+            + blockIdx.y * gridDim.x 
+            + blockIdx.z * gridDim.x * gridDim.y;
+
+// 2. 计算当前 Thread 的全局唯一 ID
+// 公式：前面所有 Block 的 Thread 总数 + 自身在当前 Block 内的三维展平偏移
+int threadId = blockId * (blockDim.x * blockDim.y * blockDim.z) 
+             + threadIdx.z * (blockDim.x * blockDim.y) 
+             + threadIdx.y * blockDim.x 
+             + threadIdx.x;
+```
+
+#### 编译简介
+
+使用nvcc来编译cuda代码
+
+##### 代码分离
+
+cuda代码中既有运行在CPU上的Host Code，也有运行在GPU上的Device Code，nvcc第一步会进行代码分离
+
+- Host Code：所有在CPU上运行的普通代码分配给系统自带的C++编译器进行编译
+- Device Code：所有带有 `__global__` 或 `__device__` 标签的核函数。这些代码nvcc会自己处理
+
+##### 两次翻译
+
+为了提高兼容性，nvcc会进行两步翻译
+
+![img](https://raw.githubusercontent.com/hhr2449/pictureBed/main/img/v2-094a1f867d97ca11317812f5d3fcf82a_r.jpg)
+
+##### 第一步：编译成ptx
+
+ptx是独立于硬件架构的伪汇编语言，只描述逻辑上的操作
+
+nvcc会基于Virtual Architecture将cuda代码翻译为ptx
+
+使用`-arch=compute_XY`指定虚拟架构
+
+##### 第二部：编译为可运行的cubin
+
+Cubin是只能在特定GPU上运行的二进制机器码
+
+nvcc会基于Real Architecture将ptx编译为真实可运行的机器码
+
+使用`-code=sm_ZW`指定真实架构
+
+
+
+`-gencode arch=compute_XY,code=sm_XY`生成可运行的机器码，不保留ptx
+
+`-gencode arch=compute_XY,code=compute_XY`只生成ptx，不生成机器码
+
+
+
+## 第二章：简单cuda程序的基本架构
+
+
+
+### 例子：数组相加
+
+```cpp
+// 使用 C++ 和 CUDA 编写一个程序，在 GPU 上实现两个超大型一维双精度浮点数（double）向量的加法运算：$Z = X + Y$。
+
+// 【参数设定】
+// 向量长度 ($N$)：$300000005$（3亿零5个元素）。
+// 输入向量 $X$：所有元素初始化为常数 $1.23$。
+// 输入向量 $Y$：所有元素初始化为常数 $2.34$。
+// 精度校验阈值 (Epsilon)：$1.0 \times 10^{-15}$。
+
+
+// 1. 分配内存：使用malloc()在主机中分配内存，使用cudaMalloc()在设备中分配内存
+// 2. 初始化向量：在主机中初始化向量x,y
+// 3. 拷贝数据：使用cudaMemcpy()将向量x,y从主机拷贝到设备
+// 4. 核函数：计算线程id，获取总线程数，然后跨步执行
+// 5. 拷贝数据：使用cudaMemcpy()将向量z从设备拷贝到主机
+// 6. 验证结果：在主机中验证结果是否正确
+// 7. 释放内存：使用free()释放内存，使用cudaFree()释放设备内存
+
+#include <stdio.h>
+#include <math.h>
+// 数据总数
+const size_t N = 300000005;
+// 浮点数判等阈值
+const double EPSILON = 1.0e-15;
+// 输入，输出向量的值
+const double a = 1.23;
+const double b = 2.34;
+const double c = 3.57;
+// 声明核函数
+__global__ void add(double *x, double *y, double *z, size_t n);
+void check_result(double *z, size_t n);
+
+int main() {
+    // 1. 分配内存
+    // 主机中内存的指针
+    double *h_x, *h_y, *h_z;
+    // 计算字节数
+    size_t M = N * sizeof(double);
+    // 使用malloc()分配内存
+    h_x = (double *)malloc(M);
+    h_y = (double *)malloc(M);
+    h_z = (double *)malloc(M);
+
+    // 设备中内存的指针
+    double *d_x, *d_y, *d_z;
+    // 使用cudaMalloc()分配内存
+    // cudaMalloc(void **devPtr, size_t size)，注意第一个参数是指向 设备中内存的指针 的指针，这里可以传入指针的地址
+    cudaMalloc((void **)&d_x, M);
+    cudaMalloc((void **)&d_y, M);
+    cudaMalloc((void **)&d_z, M);
+
+    // 2. 初始化数据
+    for(size_t i = 0; i < N; i++) {
+        h_x[i] = a;
+        h_y[i] = b;
+    }
+    printf("Initialization done.\n");
+    // 3. 拷贝数据
+    // cudaMemcpy(void *dst, const void *src, size_t count, cudaMemcpyKind kind)，其中kind指定了数据传输的方向
+    cudaMemcpy(d_x, h_x, M, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_y, h_y, M, cudaMemcpyHostToDevice);
+    printf("Data copy to device done.\n");
+
+    // 4. 启动核函数计算
+    // 注意，核函数是异步执行的，CPU调用核函数只是将核函数加入GPU的任务队列中，不会等待它完成
+    // 想要进行同步，需要1. 显式同步：cudaDeviceSynchronize() 2. 隐式同步：cudaMemcpy()是阻塞式的
+    add<<<128, 256>>>(d_x, d_y, d_z, N);
+    // 5. 拷贝结果回主机
+    cudaMemcpy(h_z, d_z, M, cudaMemcpyDeviceToHost);
+    // 6. 验证结果
+    size_t check_size = 1000;
+    check_result(h_z, check_size);
+    // 7. 释放内存
+    free(h_x);
+    free(h_y);
+    free(h_z);
+    cudaFree(d_x);
+    cudaFree(d_y);
+    cudaFree(d_z);
+    return 0;
+}
+
+// 核函数
+// 一般将数据规模作为参数传入
+__global__ void add(double *x, double *y, double *z, size_t n) {
+    // 当前线程id
+    size_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    // 线程总数，当线程数量不足时，按照stride为步长跨步执行
+    size_t stride = blockDim.x * gridDim.x;
+    for(size_t i = tid; i < n; i += stride) {
+        z[i] = x[i] + y[i];
+    }
+}
+
+// 验证结果
+void check_result(double *z, size_t n) {
+    for(size_t i = 0; i < n; i++) {
+        if(fabs(z[i] - c) > EPSILON) {
+            printf("Error at index %lu: z[%lu] = %lf, expected %lf\n", i, i, z[i], c);
+            return;
+        }
+    }
+    printf("Result is correct for the first %lu elements.\n", n);
+}
+```
+
+### cuda程序的基本框架
+
+![image-20260301171931867](https://raw.githubusercontent.com/hhr2449/pictureBed/main/img/image-20260301171931867.png)
+
+1. 分配主机和设备内存
+2. 初始化主机中的数据
+3. 将数据从主机复制到设备
+4. 调用核函数进行计算
+5. 将计算结果从设备复制到主机
+6. 释放内存
+
+
+
+### 相关知识点
+
+#### cudaMalloc
+
+`cudaMalloc(void **devPtr, size_t size)`
+
+注意devPtr是指向 `指向要分配的内存的指针` 的指针，实际使用时应该传入指针的地址
+
+size是分配的字节数
+
+
+
+#### cudaMemcpy
+
+`cudaMemcpy(void *dst, const void *src, size_t count, cudaMemcpyKind kind)`
+
+kind指定了数据传输的方向
+
+比如：`cudaMemcpyHostToDevice`是将数据从host传到device
+
+
+
+#### cudafree
+
+释放显卡上的内存
+
+
+
+#### 核函数异步执行与同步初涉
+
+CPU启动核函数实际上只是将核函数放入GPU的任务队列中，放入之后CPU不会等待GPU执行完核函数，而是继续执行
+
+也就是说，核函数的执行是**异步**的
+
+如果核函数同步执行，CPU在等待核函数执行完的时间就是空闲着的，会浪费计算资源
+
+##### 如何进行同步
+
+1. 全局显式同步`cudaDeviceSynchronize()`
+
+   CPU执行此函数之后会被阻塞，直到GPU完成所有计算任务
+
+2. 内存拷贝带来的隐式同步`cudaMemcpy()`
+
+   D2H操作（从Device到Host）一定会等待之前的GPU操作全部完成
+
+
+
+#### 核函数的基本框架
+
+1. 获取线程id
+
+   `size_t tid = blockIdx.x * blockDim.x + threadIdx.x;`
+
+2. 获取计算范围
+
+   一般使用网格跨步计算
+
+   `size_t stride = gridDim.x * blockDim.x; for(size_t i = tid; i < N; i += stride) { ... }`
+
+3. 搬运数据
+
+   开始复杂的数学运算前，通常要把所需的数据从缓慢的全局内存（Global Memory）读取到极快的寄存器（Registers）中。在更高级的算法中，这一步还会把整块数据读入**共享内存 (Shared Memory)** 供同 Block 的兄弟线程共享。
+
+4. 执行计算逻辑
+
+5. 将结果放入存放结果的内存中
+
+#### 一些数据传输的相关知识
+
+##### CPU与GPU
+
+CPU和GPU的DRAM通过PCIe总线进行连接，通过PCIe进行数据的传输
+
+###### 二次拷贝
+
+如果使用malloc分配内存，分配的是分页内存，由于虚拟内存机制，此时这块内存的物理地址是不连续的，并且上面的数据随时可能被换到磁盘中
+
+如果传输到一般数据被换出就会导致崩溃，所以需要先分配一块临时的锁页内存，将数据先拷贝到临时内存中，在通过PCIe总线传输到GPU中
+
+1. 加大了延迟
+2. 由于需要CPU将数据拷贝到临时内存中，**`cudaMemcpyAsync`**退化为同步操作
+
+###### 使用锁页内存
+
+锁页内存：物理地址连续且固定，不会被换出到磁盘的内存
+
+使用锁页内存可以提高效率，并且**`cudaMemcpyAsync`**是异步的
+
+分配：`cudaMallocHost((void**)&h_pinned, size); `
+
+释放：`cudaFreeHost(h_pinned); `
+
+
+
+##### NVLink
+
+想要实现GPU之间的通信，传统的方法会先将数据传入CPU的主内存，再传入对应的GPU
+
+NVLink 是主板上真正的一根根高速排线或桥接器，它直接把多张 GPU 物理连接在了一起，完全绕开了 CPU 和 PCIe 总线。
+
+可以实现同一主板上的GPU通信
+
+
+
+##### RDMA
+
+NVLink只能进行同一节点内的GPU通信，对于不同节点需要进行网络传输
+
+传统的方法需要将GPU中的数据传入CPU主内存中，通过网卡发送到另一个节点的CPU主内存，再传入GPU
+
+RDMA则是让网卡绕过CPU，直接从GPU中存取数据
+
+**发送端：** 节点 A 的网卡通过主板上的 PCIe 交换机（PCIe Switch），**直接去读取 GPU 0 的显存**。
+
+**网络传输：** 网卡将数据打成数据包（通常基于 InfiniBand 或 RoCE v2 协议），发往节点 B。
+
+**接收端：** 节点 B 的网卡收到数据后，再次通过本机的 PCIe 交换机，**直接把数据写入 GPU 1 的显存**。
+
+
+
+### 效率对比
 
