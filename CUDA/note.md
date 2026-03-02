@@ -309,6 +309,10 @@ void check_result(double *z, size_t n) {
 }
 ```
 
+![image-20260302100327603](https://raw.githubusercontent.com/hhr2449/pictureBed/main/img/image-20260302100327603.png)
+
+
+
 ### cuda程序的基本框架
 
 ![image-20260301171931867](https://raw.githubusercontent.com/hhr2449/pictureBed/main/img/image-20260301171931867.png)
@@ -326,9 +330,11 @@ void check_result(double *z, size_t n) {
 
 #### cudaMalloc
 
-`cudaMalloc(void **devPtr, size_t size)`
+`cudaError_t cudaMalloc(void **devPtr, size_t size)`
 
 注意devPtr是指向 `指向要分配的内存的指针` 的指针，实际使用时应该传入指针的地址
+
+返回值是错误信息，所以要传入void **devPtr，因为返回值用于传递错误信息了
 
 size是分配的字节数
 
@@ -336,7 +342,7 @@ size是分配的字节数
 
 #### cudaMemcpy
 
-`cudaMemcpy(void *dst, const void *src, size_t count, cudaMemcpyKind kind)`
+`cudaError_t cudaMemcpy(void *dst, const void *src, size_t count, cudaMemcpyKind kind)`
 
 kind指定了数据传输的方向
 
@@ -357,6 +363,8 @@ CPU启动核函数实际上只是将核函数放入GPU的任务队列中，放�
 也就是说，核函数的执行是**异步**的
 
 如果核函数同步执行，CPU在等待核函数执行完的时间就是空闲着的，会浪费计算资源
+
+
 
 ##### 如何进行同步
 
@@ -389,6 +397,8 @@ CPU启动核函数实际上只是将核函数放入GPU的任务队列中，放�
 4. 执行计算逻辑
 
 5. 将结果放入存放结果的内存中
+
+
 
 #### 一些数据传输的相关知识
 
@@ -445,3 +455,222 @@ RDMA则是让网卡绕过CPU，直接从GPU中存取数据
 
 ### 效率对比
 
+```cpp
+#include <stdio.h>
+#include <math.h>
+#include <chrono>
+
+const size_t N = 300000005;
+const double EPSILON = 1.0e-15;
+const double a = 1.23;
+const double b = 2.34;
+const double c = 3.57;
+
+__global__ void sum_gpu(double *x, double *y, double *z, size_t n);
+void sum_cpu(double *x, double *y, double *z, size_t n);
+void check_result(double *z, size_t n);
+
+int main() {
+    // 2. 分配内存
+    double *h_x, *h_y, *h_z_cpu, *h_z_gpu;
+    size_t bytes = N * sizeof(double);
+    h_x = (double *) malloc(bytes);
+    h_y = (double *) malloc(bytes);
+    h_z_cpu = (double *) malloc(bytes);
+    h_z_gpu = (double *) malloc(bytes);
+    
+    double *d_x, *d_y, *d_z;
+    cudaMalloc(&d_x, bytes);
+    cudaMalloc(&d_y, bytes);
+    cudaMalloc(&d_z, bytes);
+
+    // 2. 初始化数据
+    for (size_t i = 0; i < N; i++) {
+        h_x[i] = a;
+        h_y[i] = b;
+    }
+
+    // 3. 拷贝数据到GPU
+    cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_y, h_y, bytes, cudaMemcpyHostToDevice);
+
+    // 4. 运行计算并计时
+
+    // CPU直接计时即可
+    auto start = std::chrono::high_resolution_clock::now();
+    sum_cpu(h_x, h_y, h_z_cpu, N);
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> duration = end - start;
+    printf("CPU time: %f ms\n", duration.count());
+
+    // GPU需要创建事件并且插入
+    // 因为GPU的计算是异步的，可以在任务前后各插入一个事件，计算时间差值
+
+    // cudaEvent_t是cuda的事件句柄
+    cudaEvent_t start_event, stop_event;
+    // 创建事件
+    cudaEventCreate(&start_event);
+    cudaEventCreate(&stop_event);
+
+    // 插入事件
+    cudaEventRecord(start_event);
+    sum_gpu<<<256, 256>>>(d_x, d_y, d_z, N);
+    cudaEventRecord(stop_event);
+
+    // 同步，等待stop事件结束
+    cudaEventSynchronize(stop_event);
+
+    float elapsed_time;
+    // 计算时间差
+    cudaEventElapsedTime(&elapsed_time, start_event, stop_event);
+    printf("GPU time: %f ms\n", elapsed_time);
+
+    // 5. 拷贝数据到CPU
+    cudaMemcpy(h_z_gpu, d_z, bytes, cudaMemcpyDeviceToHost);
+    check_result(h_z_gpu, N);
+    check_result(h_z_cpu, N);
+    // 6. 销毁
+    cudaFree(d_x);
+    cudaFree(d_y);
+    cudaFree(d_z);
+    free(h_x);
+    free(h_y);
+    free(h_z_cpu);
+    free(h_z_gpu);
+    cudaEventDestroy(start_event);
+    cudaEventDestroy(stop_event);
+    return 0;
+
+    
+}
+
+// GPU计算
+__global__ void sum_gpu(double *x, double *y, double *z, size_t n) {
+    size_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t stride = blockDim.x * gridDim.x;
+    for (size_t i = tid; i < n; i += stride) {
+        z[i] = x[i] + y[i];
+    }
+}
+
+// CPU计算
+void sum_cpu(double *x, double *y, double *z, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        z[i] = x[i] + y[i];
+    }
+}
+
+// 验证结果
+void check_result(double *z, size_t n) {
+    for(size_t i = 0; i < n; i++) {
+        if(fabs(z[i] - c) > EPSILON) {
+            printf("Error at index %lu: z[%lu] = %lf, expected %lf\n", i, i, z[i], c);
+            return;
+        }
+    }
+    printf("Result is correct for the first %lu elements.\n", n);
+}
+```
+
+运行结果：
+
+![image-20260302100228401](https://raw.githubusercontent.com/hhr2449/pictureBed/main/img/image-20260302100228401.png)
+
+### 函数类型
+
+| **限定符**                | **执行位置** | **调用位置** | **关键限制**                                               | 调用方式         | 异步性                             |
+| ------------------------- | ------------ | ------------ | ---------------------------------------------------------- | ---------------- | ---------------------------------- |
+| **`__global__`**          | GPU (Device) | CPU (Host)   | 必须返回 `void`                                            | 需要`<<<>>>`语法 | 异步执行                           |
+| **`__device__`**          | GPU (Device) | GPU (Device) | 只能在设备端被调用                                         | 直接进行调用     | 同步执行（属于调用者线程的一部分） |
+| **`__host__`**            | CPU (Host)   | CPU (Host)   | 普通 C++ 函数，无法在 GPU 运行                             |                  |                                    |
+| **`__host__ __device__`** | 两者皆可     | 两者皆可     | 不能包含平台特有的代码（如 `printf` 在某些旧架构下的差异） |                  |                                    |
+
+- 核函数由CPU调用，GPU执行，返回值只能是void
+- 设备函数只能被核函数或设备函数调用，返回值可以是任何类型
+
+
+
+```cpp
+// 主机+设备函数
+__host__ __device__ double cal(double a, double b) {
+    return a * a + b * b;
+}
+
+// GPU计算
+__global__ void sum_gpu(double *x, double *y, double *z, size_t n) {
+    size_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t stride = blockDim.x * gridDim.x;
+    for (size_t i = tid; i < n; i += stride) {
+        z[i] = cal(x[i], y[i]);
+    }
+}
+
+// CPU计算
+void sum_cpu(double *x, double *y, double *z, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        z[i] = cal(x[i], y[i]);
+    }
+}
+```
+
+
+
+
+
+## CUDA程序的错误检测
+
+
+
+### 错误处理宏
+
+```cpp
+#pragma once
+#include <stdio.h>
+
+#define CHECK(call)                                                       \
+do                                                                        \
+{\
+    const cudaError_t error_code = call;\
+    if (error_code != cudaSuccess) {\
+        printf("CUDA Error\n");\
+        printf("    FILE:    %s\n", __FILE__);\
+        printf("    LINE:    %s\n", __LINE__);\
+        printf("    ERROR CODE:    %d\n", error_code);\
+        printf("    ERROR MESSAGE: %d\n", cudaGetErrorString(error_code))\
+        exit(1);
+    }\
+} while(0)
+```
+
+
+
+这里使用CHECK宏捕获错误信息，作为call参数传入，如果显示有错误，则输出错误信息并且退出
+
+`__FILE__`和`__LINE__`是内置的宏，是当前的文件和行号
+
+cudaGetErrorString可以根据错误码输出错误信息
+
+
+
+#### 检查API函数
+
+对于运行时API函数，会返回一个cudaError类型的变量来传递错误信息
+
+如果成功则返回cudaSuccess，否则返回错误码
+
+使用CHECK宏包裹函数即可：`CHECK(cudaMalloc)`
+
+
+
+#### 检查核函数
+
+使用
+
+```cpp
+CHECK(cudaGetLastError());
+CHECK(cudaDeviceSynchronize());
+```
+
+cudaGetLastError()：返回最近发生的错误码
+
+cudaDeviceSynchronize()：进行同步，保证核函数执行完毕
